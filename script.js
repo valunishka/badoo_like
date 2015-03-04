@@ -3,13 +3,16 @@
 // @version      0.1
 // @description  sup
 // @author       Valunishka
-// @match        http://badoo.com/ru/search/
+// @match        http://badoo.com/*
 // @grant        none
 // ==/UserScript==
 
 window.badooLiker = (function() {
 
-	var xhrDataSettings = {};
+	var xhrDataSettings = {},
+		virtualDom,
+		isInitialized = false,
+		url;
 
 	var loadScript = function( src, callback ) {
 		var s,r,t;
@@ -27,24 +30,39 @@ window.badooLiker = (function() {
 		t.parentNode.insertBefore( s, t );
 	};
 
-	var initialize = function() {
+	var init = function( callback ) {
 		loadScript('https://code.jquery.com/jquery-2.1.3.min.js', function() {
 			xhrDataSettings[ 'ws' ] = 1;
 			xhrDataSettings[ 'rt' ] = $('.js-ovl-open').data('ovlUrl').match(/rt=([\w\d]+)&/)[1];
 
-			makeMagic();
+			isInitialized = true;
+
+			if ( typeof(callback) === 'function' ) callback();
+
+			// makeMagic();
 		});
 
 	};
 
 	var makeMagic = function() {
-		var linksToProfiles = $('.b-link.c_name').map(function( index, element) {
-			return element.href;
-		});
 
-		linksToProfiles.each(function( index, url ) {
-			loadProfilePage( url )
-				.done(likeThisUser);
+		if ( !isInitialized ) return init(makeMagic);
+
+		getUsersFromUrl('http://badoo.com/ru/search/').then(function( links ) {
+			$(links).each(function(index, link){
+				url = link.href;
+				loadProfilePage( url ).done(likeThisUser);
+			});
+		});
+	};
+
+	var getUsersFromUrl = function( url ) {
+		return new Promise (function( resolve, reject ) {
+			$.ajax({	type: 'GET', url: url	})
+				.done(function( payload ) {
+					var virtualDom = createVirtualDom( payload ).querySelectorAll( '[rel="profile-view"]' );
+					resolve( virtualDom );
+				});
 		});
 	};
 
@@ -56,21 +74,31 @@ window.badooLiker = (function() {
 	};
 
 	var likeThisUser = function( userPage ) {
-		var euri = userPage.match(/data-choice="yes"\sdata-url="\/hidden\?euri=(.{192})/);
+		var euri = createVirtualDom( userPage ).querySelector('[data-choice="yes"');
 
-		if ( !euri ) return;
+		if ( !euri ) return null;
+
+		euri = euri.dataset[ 'url' ].match(/euri=(.{192})/)[1];
 
 		$.ajax({
 			url: '/hidden',
 			data: {
-				euri: euri[1],
+				euri: euri,
 				ws: xhrDataSettings[ 'ws' ],
-				ts: xhrDataSettings[ 'ts' ]
+				rt: xhrDataSettings[ 'rt' ]
 			}
 		});
 	};
 
+	var createVirtualDom = function( domString ) {
+		virtualDom = document.createElement( 'div' );
+		virtualDom.innerHTML = domString;
+		return virtualDom;
+	};
+
 	return {
-		initialize: initialize
+		init: init,
+		getUsersFromUrl: getUsersFromUrl,
+		makeMagic: makeMagic
 	};
 })();
